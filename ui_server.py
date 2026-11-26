@@ -256,6 +256,7 @@ def create_app(
     )
     weather_service = weather or WeatherService(cfg)
     chat_lock = asyncio.Lock()
+    sockets: set[WebSocket] = set()
     log_path = cfg.assistant.log_dir / "jarvis.log"
 
     @app.get("/")
@@ -313,6 +314,7 @@ def create_app(
             await socket.send_json({"type": "error", "text": "Jarvis core is not running."})
             await socket.close()
             return
+        sockets.add(socket)
         try:
             while True:
                 message = await socket.receive_json()
@@ -324,6 +326,8 @@ def create_app(
             return
         except Exception:  # noqa: BLE001 - a dead socket must not kill the server
             log.exception("chat socket failed")
+        finally:
+            sockets.discard(socket)
 
     async def run_turn(socket: WebSocket, text: str) -> None:
         if chat_lock.locked():
@@ -371,7 +375,17 @@ def create_app(
 
     app.state.ui = state
     app.state.sampler = sampler
+    app.state.sockets = sockets
     return app
+
+
+async def broadcast(app: FastAPI, payload: dict[str, Any]) -> None:
+    """Push a frame to every open chat socket (spoken turns, for the window)."""
+    for socket in list(getattr(app.state, "sockets", ())):
+        try:
+            await socket.send_json(payload)
+        except Exception:  # noqa: BLE001 - a stale window must not break the turn
+            app.state.sockets.discard(socket)
 
 
 # --------------------------------------------------------------------------- #

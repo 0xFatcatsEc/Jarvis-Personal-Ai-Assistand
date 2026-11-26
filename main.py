@@ -1,6 +1,9 @@
 """Jarvis entry point: wake word -> transcript -> memory -> LLM -> tools -> voice.
 
     python main.py                 # voice mode (falls back to typed if no mic)
+    python main.py --app           # desktop window: dashboard + microphone
+    python main.py --app --text    # desktop window, typed chat only
+    python main.py --ui            # the same dashboard in a browser tab
     python main.py --text          # typed conversation
     python main.py --once "hello"  # one reply, then exit
     python main.py --check         # validate config and exit
@@ -89,6 +92,7 @@ class Jarvis:
         self.echo = echo
         self.speak_replies = False
         self.on_delta: Callable[[str], Awaitable[None]] | None = None
+        self.on_voice: Callable[[str, str], Awaitable[None]] | None = None
         self._history: list[Message] = []
         self._pending: _Pending | None = None
         self._tts_warned = False
@@ -300,8 +304,12 @@ class Jarvis:
         try:
             await self._say(f"{self.name} is ready.")
             async for transcript in self.listener.listen():
+                if self.on_voice is not None:
+                    await self.on_voice("user", transcript)
                 reply = await self.handle(transcript)
                 self.write(f"{self.name}: {reply}")
+                if self.on_voice is not None:
+                    await self.on_voice("assistant", reply)
         finally:
             reminders.cancel()
             try:
@@ -370,6 +378,11 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--config", default=None, help="path to config.yaml")
     parser.add_argument("--text", action="store_true", help="typed mode, no microphone")
     parser.add_argument("--ui", action="store_true", help="serve the local web dashboard")
+    parser.add_argument(
+        "--app",
+        action="store_true",
+        help="open the dashboard in its own desktop window (add --text for no mic)",
+    )
     parser.add_argument("--once", metavar="TEXT", help="answer one message and exit")
     parser.add_argument("--check", action="store_true", help="validate configuration and exit")
     return parser.parse_args(list(argv) if argv is not None else None)
@@ -416,6 +429,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     cfg.ensure_runtime_dirs()
     setup_logging(cfg)
     jarvis = Jarvis(cfg, echo=False)
+    if args.app and args.once is None:
+        from desktop import run_app
+
+        try:
+            return run_app(cfg, jarvis, voice=not args.text)
+        except KeyboardInterrupt:
+            print("\nGoodbye.", file=sys.stderr)
+            return 130
     try:
         return asyncio.run(_serve(jarvis, args))
     except KeyboardInterrupt:

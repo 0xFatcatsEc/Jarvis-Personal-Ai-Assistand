@@ -64,10 +64,19 @@ runs the test suite on Python 3.11 with minimal deps, another installs the full
 
 ```bash
 python main.py              # voice: wake word -> speak -> reply
+python main.py --app        # desktop window: dashboard + microphone
+python main.py --app --text # desktop window, typed chat only
 python main.py --text       # typed conversation, no microphone
 python main.py --once "hi"  # one exchange, then exit
 python main.py --ui         # web dashboard at http://127.0.0.1:8765
 ```
+
+`--app` is the same dashboard in its own application window: pywebview (Edge
+WebView2 on Windows) with a tray icon, `Ctrl+Alt+J` to summon it, and the
+microphone running alongside - spoken turns appear in the window's
+conversation panel and typed turns are answered silently. If pywebview cannot
+start, the app falls back to a chromeless Edge/Chrome app-mode window, so it
+never opens as a browser tab. `--app --text` skips the microphone.
 
 The dashboard (`--ui`) shows live CPU/memory/disk/network, GPU VRAM through
 `nvidia-smi`, weather with your location, the recent log and a streaming chat,
@@ -106,6 +115,7 @@ memory_cli.py      list/get/set/forget/decay facts from the shell
 tools.py           web search, Home Assistant, notes, reminders, shell
 tts.py             Piper synthesis and playback
 main.py            async entry point
+desktop.py         the --app desktop window: server + voice + pywebview/tray/hotkey
 ui_server.py       FastAPI dashboard: SSE metrics, WebSocket chat, weather
 ui_metrics.py      psutil sampler and alert rules behind the dashboard
 ui/                index.html + app.js + style.css (no build step)

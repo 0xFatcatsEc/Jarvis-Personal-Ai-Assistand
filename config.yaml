@@ -150,7 +150,8 @@ tools:
     max_output_bytes: 4096
 
 ui:
-  # `python main.py --ui` serves this at http://127.0.0.1:8765
+  # `python main.py --ui` serves this at http://127.0.0.1:8765;
+  # `python main.py --app` opens the same dashboard in a desktop window
   host: 127.0.0.1          # 0.0.0.0 exposes the UI to your LAN (no auth)
   port: 8765
   refresh_ms: 1500         # metrics push interval

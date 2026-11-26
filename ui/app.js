@@ -360,6 +360,15 @@
       scrollChat();
       return;
     }
+    if (event.type === "turn") {
+      // A turn that happened outside this page (spoken input in the desktop
+      // window) - show it here so one conversation lists everything.
+      addMessage(event.role === "user" ? "user" : "bot", event.text || "");
+      setCoreState(event.role === "user" ? "thinking" : "idle",
+        event.role === "user" ? "Voice input" : "Standing by");
+      scrollChat();
+      return;
+    }
     if (event.type === "reply") {
       const bubble = app.streamEl || addMessage("bot", "");
       bubble.classList.remove("streaming");

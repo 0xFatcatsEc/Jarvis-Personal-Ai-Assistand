@@ -1,0 +1,148 @@
+# =============================================================================
+# Jarvis - single source of truth for configuration.
+#
+# Conventions
+#   * Any value written as `env:NAME` is read from the process environment
+#     (or .env) when this file is loaded. A missing variable becomes null and
+#     a warning - it never crashes the assistant.
+#   * Relative paths are resolved against this file's directory, so Jarvis
+#     can be started from anywhere.
+#   * Secrets never appear in this file. Keys live in .env / your shell.
+#   * Unknown keys are rejected, so a typo fails loudly instead of silently
+#     taking a default.
+#
+# Validate any edit with:   python config.py --check
+# =============================================================================
+version: 1
+
+assistant:
+  name: Jarvis
+  log_level: INFO            # DEBUG | INFO | WARNING | ERROR
+  log_dir: logs
+  data_dir: data
+  prompts_dir: prompts
+
+audio:
+  input_device: null         # null = system default; or index / name substring
+  output_device: null
+  sample_rate: 16000         # openWakeWord and Whisper both want 16 kHz mono
+  frame_ms: 80               # 80 ms = 1280 samples, openWakeWord's natural chunk
+  channels: 1
+  wakeword:
+    enabled: true
+    model: alexa             # bundled model name, or a path to a custom .onnx
+    threshold: 0.55          # 0..1 score needed to trigger
+    patience: 2              # consecutive frames above threshold before firing
+    cooldown_s: 2.0          # ignore re-triggers for this long
+  vad:
+    energy_threshold: 0.012  # RMS above this counts as speech
+    silence_ms: 800          # stop listening after this much trailing silence
+    min_speech_ms: 300       # shorter blips are discarded as noise
+    max_utterance_s: 15.0    # hard stop so a stuck mic cannot run forever
+
+stt:
+  engine: faster-whisper
+  model: base.en             # tiny.en | base.en | small.en | medium | large-v3 ...
+  device: auto               # auto | cpu | cuda
+  compute_type: int8         # int8 on CPU, float16 on GPU
+  language: en               # null lets Whisper auto-detect
+  beam_size: 5
+  vad_filter: true           # Whisper's own silero VAD trims leading/trailing silence
+  cpu_threads: 0             # 0 = let CTranslate2 decide
+  download_root: models/whisper
+
+llm:
+  temperature: 0.4
+  max_tokens: 512
+  history_turns: 8           # recent exchanges kept verbatim in the prompt
+  # Tried in this order. `local_only` / `cloud_only` under routing narrows it.
+  providers:
+    - name: ollama
+      enabled: true
+      model: llama3.1:8b
+      base_url: http://localhost:11434
+      timeout_s: 120           # local first load can be slow
+      max_retries: 1
+      options:                 # passed straight to Ollama's /api/chat
+        num_ctx: 4096
+        keep_alive: 30m
+    - name: openai
+      enabled: true
+      model: gpt-4o-mini
+      api_key: env:OPENAI_API_KEY
+      timeout_s: 60
+      max_retries: 2
+    - name: anthropic
+      enabled: true
+      model: claude-3-5-haiku-latest
+      api_key: env:ANTHROPIC_API_KEY
+      timeout_s: 60
+      max_retries: 2
+  routing:
+    mode: sequential          # sequential | local_only | cloud_only
+    # Which failures move on to the next provider instead of speaking an error.
+    fallback_on: [connection, timeout, rate_limit, server_error]
+
+memory:
+  sqlite_path: data/jarvis.db
+  decay_days: 90             # unaccessed facts older than this are flagged stale
+  chroma:
+    path: data/chroma
+    collection: conversations
+    embedding_model: all-MiniLM-L6-v2   # Chroma's local default, downloads once
+  recall:
+    top_k_facts: 8
+    top_k_turns: 5           # past exchanges pulled back by embedding similarity
+    min_similarity: 0.25     # below this, recall contributes nothing
+  learn:
+    enabled: true            # extract new facts after each exchange
+    max_new_facts: 5         # per exchange, so a chatty reply cannot flood the DB
+    max_tokens: 256          # budget for the extraction call
+  # Written once on first run, then owned by the database (edits here are
+  # re-seeded only for keys that do not exist yet).
+  seed_facts:
+    name: User
+    timezone: America/New_York
+    preferred_language: English
+    preferred_tts_voice: en_US-lessac-medium
+    home_assistant_url: http://localhost:8123
+    assistant_name: Jarvis
+    tone: concise, slightly dry humor, like a competent butler
+
+tts:
+  engine: piper
+  voice: en_US-lessac-medium
+  voices_dir: models/piper   # <voice>.onnx and <voice>.onnx.json live here
+  model_path: null           # set to override the voices_dir/voice convention
+  sample_rate: 22050         # must match the voice's own rate
+  speed: 1.0                 # 1.0 normal; 1.2 faster, 0.9 slower
+  volume: 1.0
+  device_index: null         # speaker for playback; null = system default
+
+tools:
+  enabled: [web_search, notes, reminders, home_assistant, shell]
+  confirm_risky_actions: true   # speak back and wait for a yes before side effects
+  web_search:
+    provider: ddgs           # ddgs (no key) | tavily | searxng
+    max_results: 5
+    timeout_s: 10
+    api_key: env:TAVILY_API_KEY
+    searxng_url: null        # e.g. http://localhost:8888 when provider: searxng
+  home_assistant:
+    url: http://localhost:8123
+    token: env:HOME_ASSISTANT_TOKEN
+    timeout_s: 10
+    allow_domains: [light, switch, climate, scene, script]
+  notes:
+    dir: notes               # markdown files live here
+    max_bytes: 64000         # refuse to read/write notes larger than this
+  reminders:
+    db_path: data/reminders.db
+    check_interval_s: 30     # how often the scheduler looks for due reminders
+    max_per_user: 20
+  shell:
+    enabled: true
+    # argv[0] only, matched exactly. These are read-only inspection commands.
+    whitelist: [ls, date, uptime, df, whoami, pwd]
+    timeout_s: 5
+    max_output_bytes: 4096

@@ -1,0 +1,36 @@
+# Jarvis runtime dependencies.
+#
+#   python3.11 -m venv .venv && . .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# Python 3.11 specifically: openWakeWord pulls tflite-runtime, which publishes
+# Linux wheels only up to cp311. (config.py alone runs on 3.12-3.14, but the
+# audio stack does not.) Resolution verified on linux/cp311 -> see README.
+#
+# Pins are compatible-release (~=): minor and patch updates of a known-good
+# release, never the next major.
+
+# config
+PyYAML~=6.0
+pydantic~=2.14
+python-dotenv~=1.2
+
+# audio capture / playback + wake word
+numpy~=2.0
+sounddevice~=0.5
+openwakeword~=0.6
+
+# speech to text (local, CTranslate2 backend)
+faster-whisper~=1.2
+
+# llm transport: Ollama, OpenAI and Anthropic over plain HTTP
+httpx~=0.28
+
+# text to speech (local, ONNX)
+piper-tts~=1.8
+
+# memory: vector recall (SQLite comes from the stdlib)
+chromadb~=1.5
+
+# tools: keyless web search
+ddgs~=9.16

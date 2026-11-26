@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install test dependencies
+        run: pip install PyYAML~=6.0 "pydantic~=2.14" "python-dotenv~=1.2" "httpx~=0.28" "numpy~=2.0" "pytest~=9.2"
+      - name: Run tests
+        run: python -m pytest
+
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install the full runtime stack
+        run: pip install -r requirements.txt
+      - name: Import every module
+        run: python -c "import config, audio, brain, memory, tools, tts, main; print('imports ok')"

@@ -1,0 +1,23 @@
+# secrets
+.env
+.env.*
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# runtime state (personal data - never commit)
+data/*
+logs/*
+notes/*
+models/*
+!data/.gitkeep
+!logs/.gitkeep
+!notes/.gitkeep
+!models/.gitkeep
+
+# os noise
+.DS_Store

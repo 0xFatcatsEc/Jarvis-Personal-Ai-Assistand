@@ -285,9 +285,10 @@ def test_home_assistant_requires_configuration():
 # shell
 # --------------------------------------------------------------------------- #
 def test_shell_runs_whitelisted_command():
-    tool = Shell(ShellConfig(whitelist=["echo"], timeout_s=5))
-    output = run(tool.run({"command": "echo hello"}))
-    assert "hello" in output and "exit 0" in output
+    # whoami is a real executable on both POSIX and Windows; "echo" is a shell builtin on Windows.
+    tool = Shell(ShellConfig(whitelist=["whoami"], timeout_s=5))
+    output = run(tool.run({"command": "whoami"}))
+    assert output.strip() and "exit 0" in output
 
 
 def test_shell_rejects_non_whitelisted_command():

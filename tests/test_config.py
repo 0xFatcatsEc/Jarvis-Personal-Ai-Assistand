@@ -231,7 +231,8 @@ def test_redacted_config_hides_secrets(tmp_path, monkeypatch):
 
     assert "sk-live-do-not-print" not in dumped
     assert '"<set>"' in dumped
-    assert str(tmp_path) in dumped
+    # Compare against the JSON-escaped form: on Windows every "\" becomes "\\".
+    assert json.dumps(str(tmp_path))[1:-1] in dumped
 
 
 # --------------------------------------------------------------------------- #

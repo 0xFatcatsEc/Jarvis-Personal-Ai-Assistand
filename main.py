@@ -19,7 +19,7 @@ import re
 import sys
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
-from typing import Any, Callable, Iterable
+from typing import Any, Awaitable, Callable, Iterable
 
 from brain import (
     Brain,
@@ -88,6 +88,7 @@ class Jarvis:
         self.write = write
         self.echo = echo
         self.speak_replies = False
+        self.on_delta: Callable[[str], Awaitable[None]] | None = None
         self._history: list[Message] = []
         self._pending: _Pending | None = None
         self._tts_warned = False
@@ -200,6 +201,8 @@ class Jarvis:
             if isinstance(event, TextDelta):
                 if self.echo and event.text:
                     self.write(event.text)
+                if self.on_delta is not None and event.text:
+                    await self.on_delta(event.text)
             elif isinstance(event, Completion):
                 final = event
         if self.echo and final is not None and final.text:
@@ -366,6 +369,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Jarvis, a local-first voice assistant")
     parser.add_argument("--config", default=None, help="path to config.yaml")
     parser.add_argument("--text", action="store_true", help="typed mode, no microphone")
+    parser.add_argument("--ui", action="store_true", help="serve the local web dashboard")
     parser.add_argument("--once", metavar="TEXT", help="answer one message and exit")
     parser.add_argument("--check", action="store_true", help="validate configuration and exit")
     return parser.parse_args(list(argv) if argv is not None else None)
@@ -375,6 +379,11 @@ async def _serve(jarvis: Jarvis, args: argparse.Namespace) -> int:
     try:
         if args.once is not None:
             await jarvis.once(args.once)
+            return 0
+        if args.ui:
+            from ui_server import serve_ui
+
+            await serve_ui(jarvis)
             return 0
         if args.text:
             await jarvis.run_text()

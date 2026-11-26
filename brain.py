@@ -116,6 +116,7 @@ async def _ollama_stream(
         payload["tools"] = [{"type": "function", "function": t} for t in tools]
 
     text: list[str] = []
+    reasoning: list[str] = []
     calls: list[ToolCall] = []
     finish: str | None = None
     async with client.stream("POST", f"{base}/api/chat", json=payload, timeout=provider.timeout_s) as response:
@@ -131,6 +132,9 @@ async def _ollama_stream(
             if error := chunk.get("error"):
                 raise LLMError("bad_response", str(error), provider.name)
             message = chunk.get("message") or {}
+            # thinking models (qwen3) stream reasoning in its own field; it is not the answer
+            if thought := message.get("thinking"):
+                reasoning.append(thought)
             delta = message.get("content") or ""
             if delta:
                 text.append(delta)
@@ -146,7 +150,15 @@ async def _ollama_stream(
                 )
             if chunk.get("done"):
                 finish = chunk.get("done_reason")
-    yield Completion(text="".join(text), provider=provider.name, model=provider.model, tool_calls=calls, finish_reason=finish)
+    answer = "".join(text)
+    if not answer.strip() and reasoning:
+        raise LLMError(
+            "bad_response",
+            f"model returned reasoning but no answer ({len(''.join(reasoning))} chars of thinking); "
+            "raise num_predict in the provider options",
+            provider.name,
+        )
+    yield Completion(text=answer, provider=provider.name, model=provider.model, tool_calls=calls, finish_reason=finish)
 
 
 def _ollama_message(message: Message) -> dict[str, Any]:

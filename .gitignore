@@ -3,11 +3,13 @@
 .env.*
 
 # python
-__pycache__/
+# Contents-only patterns (`dir/*`) keep the folders ignored while letting
+# `git add <folder>` succeed instead of failing with "paths are ignored".
+__pycache__/*
 *.py[cod]
-.venv/
-.pytest_cache/
-*.egg-info/
+.venv/*
+.pytest_cache/*
+*.egg-info/*
 
 # runtime state (personal data - never commit)
 data/*

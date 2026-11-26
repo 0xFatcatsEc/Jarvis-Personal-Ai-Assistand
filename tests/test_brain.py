@@ -102,6 +102,39 @@ def test_ollama_streams_text_and_tool_call():
     assert seen["body"]["tools"][0]["function"]["name"] == "web_search"
 
 
+OLLAMA_THINKING_BODY = "\n".join(
+    [
+        json.dumps({"message": {"role": "assistant", "thinking": "The user said hi. "}, "done": False}),
+        json.dumps({"message": {"role": "assistant", "thinking": "Answer briefly."}, "done": False}),
+        json.dumps({"message": {"role": "assistant", "content": "Hi "}, "done": False}),
+        json.dumps({"message": {"role": "assistant", "content": "there"}, "done": False}),
+        json.dumps({"message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "stop"}),
+    ]
+)
+
+
+def test_ollama_keeps_reasoning_out_of_the_answer():
+    brain = make_brain([ollama()], lambda request: httpx.Response(200, text=OLLAMA_THINKING_BODY))
+
+    text, completion = asyncio.run(run_stream(brain))
+
+    assert text == "Hi there"
+    assert completion.text == "Hi there"
+
+
+def test_ollama_reasoning_without_answer_reports_budget():
+    body = "\n".join(
+        [
+            json.dumps({"message": {"role": "assistant", "thinking": "thinking..."}, "done": False}),
+            json.dumps({"message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "length"}),
+        ]
+    )
+    brain = make_brain([ollama()], lambda request: httpx.Response(200, text=body))
+
+    with pytest.raises(LLMError, match="reasoning but no answer"):
+        asyncio.run(run_stream(brain))
+
+
 def test_ollama_converts_tool_history():
     def handler(request):
         body = json.loads(request.content)

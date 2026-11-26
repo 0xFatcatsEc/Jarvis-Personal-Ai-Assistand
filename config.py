@@ -328,6 +328,46 @@ class ToolsConfig(_Section):
 
 
 # --------------------------------------------------------------------------- #
+# web ui
+# --------------------------------------------------------------------------- #
+class UiLocationConfig(_Section):
+    """Fixed coordinates for the weather card; unset means IP geolocation."""
+
+    name: str | None = Field(None, min_length=1, max_length=80)
+    latitude: float | None = Field(None, ge=-90.0, le=90.0)
+    longitude: float | None = Field(None, ge=-180.0, le=180.0)
+
+    @model_validator(mode="after")
+    def _paired(self) -> UiLocationConfig:
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("ui.location needs both latitude and longitude, or neither")
+        return self
+
+
+class UiAlertsConfig(_Section):
+    cpu_warn: float = Field(80.0, ge=1.0, le=100.0)
+    cpu_critical: float = Field(90.0, ge=1.0, le=100.0)
+    ram_warn: float = Field(85.0, ge=1.0, le=100.0)
+    gpu_warn: float = Field(90.0, ge=1.0, le=100.0)
+    disk_warn: float = Field(90.0, ge=1.0, le=100.0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> UiAlertsConfig:
+        if self.cpu_critical <= self.cpu_warn:
+            raise ValueError("ui.alerts.cpu_critical must be greater than ui.alerts.cpu_warn")
+        return self
+
+
+class UiConfig(_Section):
+    host: Literal["127.0.0.1", "0.0.0.0"] = "127.0.0.1"
+    port: int = Field(8765, ge=1024, le=65535)
+    refresh_ms: int = Field(1500, ge=500, le=10_000)
+    open_browser: bool = True
+    location: UiLocationConfig = Field(default_factory=UiLocationConfig)
+    alerts: UiAlertsConfig = Field(default_factory=UiAlertsConfig)
+
+
+# --------------------------------------------------------------------------- #
 # root
 # --------------------------------------------------------------------------- #
 class Config(_Section):
@@ -339,6 +379,7 @@ class Config(_Section):
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     tts: TtsConfig = Field(default_factory=TtsConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    ui: UiConfig = Field(default_factory=UiConfig)
     source_path: Path | None = Field(None, exclude=True)
     warnings: tuple[str, ...] = Field((), exclude=True)
 

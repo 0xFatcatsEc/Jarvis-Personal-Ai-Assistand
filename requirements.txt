@@ -34,3 +34,8 @@ chromadb~=1.5
 
 # tools: keyless web search
 ddgs~=9.16
+
+# web dashboard (python main.py --ui)
+fastapi~=0.115
+uvicorn~=0.32
+psutil~=7.0

@@ -65,7 +65,7 @@ llm:
       max_retries: 1
       options:                 # passed straight to Ollama's /api/chat
         num_ctx: 4096
-        num_predict: 1024
+        num_predict: 1024      # thinking models (qwen3) spend this budget on reasoning first
         num_gpu: 0
         keep_alive: 30m
     - name: openai
@@ -148,3 +148,20 @@ tools:
     whitelist: [ls, date, uptime, df, whoami, pwd]
     timeout_s: 5
     max_output_bytes: 4096
+
+ui:
+  # `python main.py --ui` serves this at http://127.0.0.1:8765
+  host: 127.0.0.1          # 0.0.0.0 exposes the UI to your LAN (no auth)
+  port: 8765
+  refresh_ms: 1500         # metrics push interval
+  open_browser: true
+  location:                # null/null = locate by public IP
+    name: null
+    latitude: null
+    longitude: null
+  alerts:
+    cpu_warn: 80           # percent
+    cpu_critical: 90       # percent; also lights the CPU OVERLOAD badge
+    ram_warn: 85           # percent
+    gpu_warn: 90           # percent of GPU utilisation or VRAM
+    disk_warn: 90          # percent of the system drive

@@ -66,7 +66,15 @@ runs the test suite on Python 3.11 with minimal deps, another installs the full
 python main.py              # voice: wake word -> speak -> reply
 python main.py --text       # typed conversation, no microphone
 python main.py --once "hi"  # one exchange, then exit
+python main.py --ui         # web dashboard at http://127.0.0.1:8765
 ```
+
+The dashboard (`--ui`) shows live CPU/memory/disk/network, GPU VRAM through
+`nvidia-smi`, weather with your location, the recent log and a streaming chat,
+all from the same `Jarvis.handle` path as `--text`. It binds to localhost by
+default; `ui.host: 0.0.0.0` in `config.yaml` exposes it to your LAN with no
+authentication, so only do that on a network you trust. It needs `fastapi`,
+`uvicorn` and `psutil` from `requirements.txt`.
 
 Before the first voice run, `python doctor.py` checks the environment and
 downloads the configured Piper voice (~63 MB) into `models/piper/`. It reports
@@ -98,6 +106,9 @@ memory_cli.py      list/get/set/forget/decay facts from the shell
 tools.py           web search, Home Assistant, notes, reminders, shell
 tts.py             Piper synthesis and playback
 main.py            async entry point
+ui_server.py       FastAPI dashboard: SSE metrics, WebSocket chat, weather
+ui_metrics.py      psutil sampler and alert rules behind the dashboard
+ui/                index.html + app.js + style.css (no build step)
 doctor.py          preflight checks: audio, models, Ollama, keys
 .github/workflows/ci.yml   pytest on 3.11 + full dependency import check
 data/              jarvis.db, chroma/, reminders.db   (git-ignored)

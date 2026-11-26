@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jarvis — Core</title>
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%2322e3ff' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%2322e3ff' stroke-width='2' stroke-dasharray='5 3'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="scanlines" aria-hidden="true"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5"/>
+      <circle cx="20" cy="20" r="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-dasharray="18 5"/>
+      <circle cx="20" cy="20" r="4" fill="currentColor"/>
+    </svg>
+    <div class="brand-text">
+      <strong>J.A.R.V.I.S</strong>
+      <span>PERSONAL ASSISTANT CORE</span>
+    </div>
+  </div>
+  <div class="top-status" id="top-status">
+    <span class="dot" id="conn-dot"></span>
+    <span id="conn-label">LINKING…</span>
+  </div>
+  <div class="topclock">
+    <time id="clock">--:--:--</time>
+    <span id="date">—</span>
+  </div>
+  <div class="topweather">
+    <span class="tw-temp" id="tw-temp">--°</span>
+    <span class="tw-text" id="tw-text">weather · —</span>
+  </div>
+</header>
+
+<main class="grid">
+  <!-- left column ------------------------------------------------------- -->
+  <section class="col col-left" aria-label="System telemetry">
+    <article class="panel" id="panel-system">
+      <header class="panel-head"><h2>SYSTEM</h2><span class="panel-tag" id="sys-tag">LIVE</span></header>
+      <div class="panel-body">
+        <div class="metric-row">
+          <span class="metric-label">CPU</span>
+          <strong class="metric-value" id="sys-cpu-value">--%</strong>
+        </div>
+        <div class="meter"><div class="meter-fill" id="sys-cpu-bar"></div></div>
+        <div class="core-bars" id="sys-cores" aria-label="Per core load"></div>
+        <div class="metric-row">
+          <span class="metric-label">MEMORY</span>
+          <strong class="metric-value" id="sys-ram-value">--%</strong>
+        </div>
+        <div class="meter"><div class="meter-fill" id="sys-ram-bar"></div></div>
+        <p class="metric-detail" id="sys-ram-detail">— / —</p>
+        <div class="metric-row">
+          <span class="metric-label">DISK</span>
+          <strong class="metric-value" id="sys-disk-value">--%</strong>
+        </div>
+        <div class="meter"><div class="meter-fill" id="sys-disk-bar"></div></div>
+        <p class="metric-detail" id="sys-disk-detail">—</p>
+        <div class="split">
+          <div><span class="metric-label">NET ↑</span><strong id="sys-net-up">0 B/s</strong></div>
+          <div><span class="metric-label">NET ↓</span><strong id="sys-net-down">0 B/s</strong></div>
+        </div>
+        <p class="metric-detail" id="sys-hostline">—</p>
+      </div>
+    </article>
+
+    <article class="panel" id="panel-gpu">
+      <header class="panel-head"><h2>GPU / VRAM</h2><span class="panel-tag" id="gpu-tag">NVIDIA</span></header>
+      <div class="panel-body">
+        <p class="gpu-name" id="gpu-name">Scanning…</p>
+        <div class="metric-row">
+          <span class="metric-label">VRAM</span>
+          <strong class="metric-value" id="gpu-vram-value">--</strong>
+        </div>
+        <div class="meter"><div class="meter-fill amber" id="gpu-vram-bar"></div></div>
+        <div class="split">
+          <div><span class="metric-label">UTIL</span><strong id="gpu-util">--%</strong></div>
+          <div><span class="metric-label">TEMP</span><strong id="gpu-temp">--°C</strong></div>
+        </div>
+        <p class="metric-detail" id="gpu-note">Inference runs on the CPU when no GPU is present.</p>
+      </div>
+    </article>
+
+    <article class="panel" id="panel-weather">
+      <header class="panel-head"><h2>WEATHER</h2><span class="panel-tag" id="wx-city">—</span></header>
+      <div class="panel-body wx-body">
+        <div class="wx-main">
+          <strong class="wx-temp" id="wx-temp">--°</strong>
+          <div>
+            <p class="wx-cond" id="wx-cond">Waiting for data</p>
+            <p class="metric-detail" id="wx-feels">Feels like —</p>
+          </div>
+        </div>
+        <div class="split">
+          <div><span class="metric-label">WIND</span><strong id="wx-wind">—</strong></div>
+          <div><span class="metric-label">HUMIDITY</span><strong id="wx-humidity">—</strong></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel" id="panel-activity">
+      <header class="panel-head"><h2>ACTIVITY</h2><span class="panel-tag">LOG</span></header>
+      <div class="panel-body">
+        <ul class="activity-list" id="activity-list">
+          <li class="activity-empty">No events yet.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="panel" id="panel-terminal">
+      <header class="panel-head"><h2>TERMINAL</h2><span class="panel-tag">TAIL</span></header>
+      <div class="panel-body">
+        <pre class="terminal" id="terminal-list">logs/jarvis.log</pre>
+      </div>
+    </article>
+  </section>
+
+  <!-- centre ----------------------------------------------------------- -->
+  <section class="col col-center" aria-label="Jarvis core">
+    <div class="core" id="core">
+      <svg class="core-rings" viewBox="0 0 440 440" aria-hidden="true">
+        <defs>
+          <linearGradient id="ringFade" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#22e3ff"/>
+            <stop offset="60%" stop-color="#22e3ff" stop-opacity=".55"/>
+            <stop offset="100%" stop-color="#22e3ff" stop-opacity=".05"/>
+          </linearGradient>
+          <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="3" result="b"/>
+            <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <g class="spin-slow">
+          <circle cx="220" cy="220" r="196" class="ring ticks"/>
+        </g>
+        <g class="spin-reverse">
+          <circle cx="220" cy="220" r="172" class="ring dashes"/>
+        </g>
+        <circle cx="220" cy="220" r="208" class="ring track"/>
+        <circle cx="220" cy="220" r="208" class="ring progress" id="core-progress"
+                transform="rotate(-90 220 220)"/>
+        <g class="spin-slow">
+          <circle cx="220" cy="220" r="146" class="ring thin" stroke-dasharray="2 12"/>
+        </g>
+        <circle cx="220" cy="220" r="120" class="ring inner-glow" filter="url(#glow)"/>
+      </svg>
+      <div class="core-center">
+        <span class="core-kicker" id="core-name">JARVIS</span>
+        <strong class="core-state" id="core-state">Standing by</strong>
+        <span class="core-sub" id="core-sub">Listening for new orders…</span>
+        <span class="core-load"><span id="core-load-value">0</span><small>% LOAD</small></span>
+      </div>
+      <div class="alert-badge" id="alert-badge" hidden>CPU OVERLOAD</div>
+    </div>
+
+    <div class="core-stats">
+      <div class="stat"><span>MODEL</span><strong id="core-model">—</strong></div>
+      <div class="stat"><span>LAST TURN</span><strong id="core-latency">—</strong></div>
+      <div class="stat"><span>SESSION</span><strong id="core-uptime">—</strong></div>
+      <div class="stat"><span>TURNS</span><strong id="core-turns">0</strong></div>
+    </div>
+
+    <div class="alert-list" id="alert-list" aria-live="polite"></div>
+  </section>
+
+  <!-- right column ----------------------------------------------------- -->
+  <section class="col col-right" aria-label="Core details and conversation">
+    <article class="panel" id="panel-coreinfo">
+      <header class="panel-head"><h2>CORE STATUS</h2><span class="panel-tag" id="core-tag">IDLE</span></header>
+      <div class="panel-body">
+        <dl class="detail-grid">
+          <div><dt>PROVIDER</dt><dd id="st-provider">—</dd></div>
+          <div><dt>ROUTING</dt><dd id="st-routing">—</dd></div>
+          <div><dt>CONTEXT</dt><dd id="st-context">—</dd></div>
+          <div><dt>HOST</dt><dd id="st-host">—</dd></div>
+          <div><dt>PYTHON</dt><dd id="st-python">—</dd></div>
+          <div><dt>HOST UP</dt><dd id="st-uptime">—</dd></div>
+        </dl>
+      </div>
+    </article>
+
+    <article class="panel" id="panel-location">
+      <header class="panel-head"><h2>LOCATION</h2><span class="panel-tag">GEO</span></header>
+      <div class="panel-body location-body">
+        <div class="globe" aria-hidden="true">
+          <span class="globe-grid"></span>
+          <span class="globe-dot"></span>
+        </div>
+        <div class="location-text">
+          <strong id="loc-name">Locating…</strong>
+          <p class="metric-detail" id="loc-coords">—</p>
+          <p class="metric-detail" id="loc-source">Source: IP geolocation</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel panel-chat" id="panel-chat">
+      <header class="panel-head">
+        <h2>CONVERSATION</h2>
+        <span class="panel-tag" id="chat-status">ONLINE</span>
+      </header>
+      <div class="chat-log" id="chat-log" role="log" aria-live="polite" aria-label="Conversation">
+        <div class="chat-hint">
+          <p>Jarvis is standing by.</p>
+          <p class="metric-detail">Ask anything, or say “system report” for a status rundown.</p>
+        </div>
+      </div>
+      <form class="chat-form" id="chat-form" autocomplete="off">
+        <input id="chat-input" type="text" placeholder="Ask anything…" aria-label="Message Jarvis" maxlength="2000">
+        <button type="submit" aria-label="Send message">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </form>
+    </article>
+  </section>
+</main>
+
+<nav class="dock" aria-label="Panel shortcuts">
+  <button type="button" data-panel="panel-chat" aria-label="Conversation">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v10H9l-4 4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+  </button>
+  <button type="button" data-panel="panel-system" aria-label="System">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="9.5" y="9.5" width="5" height="5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" stroke="currentColor" stroke-width="1.4"/></svg>
+  </button>
+  <button type="button" data-panel="panel-gpu" aria-label="GPU">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h18v8H3z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="12" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M15 10v4M18 10v4" stroke="currentColor" stroke-width="1.4"/></svg>
+  </button>
+  <button type="button" data-panel="panel-weather" aria-label="Weather">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="9" r="3.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 2.5v2M9 13.5v2M2.5 9h2M13.5 9h2M4.4 4.4l1.4 1.4M12.2 12.2l1.4 1.4M13.6 4.4l-1.4 1.4M5.8 12.2l-1.4 1.4" stroke="currentColor" stroke-width="1.4"/><path d="M13 18h7a2.5 2.5 0 0 0 0-5 3.6 3.6 0 0 0-6.9 1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
+  </button>
+  <button type="button" data-panel="panel-activity" aria-label="Activity log">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2.5-6 4 12 2.5-6h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <button type="button" data-panel="panel-terminal" aria-label="Terminal">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 10l3 2.5-3 2.5M12.5 15h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+  </button>
+</nav>
+
+<script src="app.js"></script>
+</body>
+</html>

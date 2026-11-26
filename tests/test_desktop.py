@@ -57,6 +57,18 @@ def test_choose_port_moves_when_the_configured_port_is_taken():
         assert not desktop.port_in_use("127.0.0.1", chosen)
 
 
+def test_free_port_skips_a_candidate_that_still_answers(monkeypatch):
+    seen = []
+
+    def fake_in_use(host, port):
+        seen.append(port)
+        return len(seen) == 1
+
+    monkeypatch.setattr(desktop, "port_in_use", fake_in_use)
+    desktop.free_port("127.0.0.1")
+    assert len(seen) >= 2
+
+
 def test_choose_port_keeps_a_free_port():
     free = desktop.free_port("127.0.0.1")
     assert desktop.choose_port("127.0.0.1", free) == free

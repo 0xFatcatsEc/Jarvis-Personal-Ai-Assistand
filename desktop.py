@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import os
 import shutil
 import socket
 import subprocess
@@ -92,10 +93,23 @@ def port_in_use(host: str, port: int) -> bool:
         return sock.connect_ex((host, port)) == 0
 
 
-def free_port(host: str) -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        return int(sock.getsockname()[1])
+def free_port(host: str, attempts: int = 20) -> int:
+    """A port nothing is listening on.
+
+    Windows can hand out, and let us bind, a port another socket already
+    listens on, so every candidate is re-checked with a real connection.
+    """
+    port = 0
+    for _ in range(attempts):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            if os.name == "nt":
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+            sock.bind((host, 0))
+            port = int(sock.getsockname()[1])
+        if not port_in_use(host, port):
+            return port
+        log.debug("free_port: %s still answers on %s; asking again", host, port)
+    return port
 
 
 def choose_port(host: str, preferred: int) -> int:

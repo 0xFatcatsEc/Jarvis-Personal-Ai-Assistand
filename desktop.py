@@ -86,16 +86,16 @@ def app_url(host: str, port: int) -> str:
 
 
 def port_in_use(host: str, port: int) -> bool:
-    """Whether something answers on the port right now.
+    """Whether the port is taken, decided by trying to bind it.
 
-    A probe only: on Windows a second connect to the same listening socket can
-    fail while the first is still queued, so port choice uses `_can_bind`.
+    Windows' connect probe is wrong in both directions here (it accepted a
+    port a socket was already listening on, and refused one we had just bound),
+    while an exclusive bind answers the question the server actually asks: can
+    this process listen on it?
     """
     if port <= 0:
         return False
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.3)
-        return sock.connect_ex((host, port)) == 0
+    return not _can_bind(host, port)
 
 
 def _can_bind(host: str, port: int) -> bool:

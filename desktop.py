@@ -176,7 +176,9 @@ class DashboardServer(threading.Thread):
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 - no mic must not close the window
+            reason = str(exc) or exc.__class__.__name__
             log.error("voice mode unavailable (%s); the window still handles typing", exc)
+            await self._voice_turn("assistant", f"Voice mode unavailable: {reason}. Typing still works.")
 
     async def _voice_turn(self, role: str, text: str) -> None:
         from ui_server import broadcast

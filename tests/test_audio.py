@@ -306,3 +306,43 @@ def test_capture_yields_mono_int16_frames():
     assert calls["blocksize"] == 1280 and calls["device"] == 2
     assert calls["samplerate"] == 16_000 and calls["channels"] == 1
     assert all(frame.dtype == np.int16 and frame.shape == (1280,) for frame in frames)
+
+
+# --------------------------------------------------------------------------- #
+# wake word model resolution
+# --------------------------------------------------------------------------- #
+def test_ensure_wakeword_model_uses_a_bundled_file(tmp_path, monkeypatch):
+    (tmp_path / "hey_jarvis_v0.1.onnx").write_bytes(b"onnx")
+    monkeypatch.setattr(audio, "_wakeword_model_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        audio, "_download_wakeword_model", lambda name: pytest.fail("must not download")
+    )
+
+    assert audio.ensure_wakeword_model("hey_jarvis") == tmp_path / "hey_jarvis_v0.1.onnx"
+
+
+def test_ensure_wakeword_model_downloads_a_missing_file(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_download(name):
+        calls.append(name)
+        (tmp_path / f"{name}_v0.1.onnx").write_bytes(b"onnx")
+
+    monkeypatch.setattr(audio, "_wakeword_model_dir", lambda: tmp_path)
+    monkeypatch.setattr(audio, "_download_wakeword_model", fake_download)
+
+    path = audio.ensure_wakeword_model("alexa")
+    assert path.name == "alexa_v0.1.onnx" and calls == ["alexa"]
+
+
+def test_ensure_wakeword_model_explains_an_unknown_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(audio, "_wakeword_model_dir", lambda: tmp_path)
+    monkeypatch.setattr(audio, "_download_wakeword_model", lambda name: None)
+
+    with pytest.raises(audio.AudioError, match="not available"):
+        audio.ensure_wakeword_model("nope")
+
+
+def test_load_wakeword_model_rejects_a_missing_file(tmp_path):
+    with pytest.raises(audio.AudioError, match="does not exist"):
+        audio._load_wakeword_model(str(tmp_path / "gone.onnx"))

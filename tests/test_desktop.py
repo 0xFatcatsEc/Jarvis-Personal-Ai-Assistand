@@ -117,6 +117,23 @@ def test_voice_turn_lands_in_the_conversation_panel_state():
     assert app.state.ui.turns[-1]["text"] == "It is noon."
 
 
+def test_voice_failure_is_reported_in_the_window():
+    cfg = Config(assistant={"name": "Jarvis"})
+    app = ui_server.create_app(cfg, jarvis=None)
+    jarvis = FakeJarvis(cfg)
+
+    async def no_wake_word() -> None:
+        raise RuntimeError("wake word model 'hey_jarvis' is not available")
+
+    jarvis.run_voice = no_wake_word
+    server = desktop.DashboardServer(cfg, jarvis, port=1, voice=False)
+    server.app = app
+
+    asyncio.run(server._voice())
+    assert app.state.ui.state == "idle"
+    assert app.state.ui.turns[-1]["text"].startswith("Voice mode unavailable: wake word model")
+
+
 class FakeWindow:
     def __init__(self, title, url, kwargs):
         self.title = title

@@ -161,3 +161,33 @@ def test_cli_flags():
     args = doctor.parse_args(["--no-download", "--json"])
     assert args.no_download is True and args.json is True
     assert doctor.parse_args([]).no_download is False
+
+
+def test_check_wakeword_downloads_a_missing_model(tmp_path, monkeypatch):
+    import audio
+    from config import AudioConfig, WakeWordConfig
+
+    directory = tmp_path / "wakeword"
+    directory.mkdir()
+
+    def fake_download(name):
+        (directory / f"{name}_v0.1.onnx").write_bytes(b"onnx")
+
+    monkeypatch.setattr(audio, "_wakeword_model_dir", lambda: directory)
+    monkeypatch.setattr(audio, "_download_wakeword_model", fake_download)
+    cfg = Config(audio=AudioConfig(wakeword=WakeWordConfig(model="hey_jarvis")))
+
+    check = doctor.check_wakeword(cfg, download=True)
+    assert check.status == "ok" and check.detail.endswith("hey_jarvis_v0.1.onnx")
+
+
+def test_check_wakeword_warns_when_it_cannot_download(tmp_path, monkeypatch):
+    import audio
+    from config import AudioConfig, WakeWordConfig
+
+    monkeypatch.setattr(audio, "_wakeword_model_dir", lambda: tmp_path)
+    monkeypatch.setattr(audio, "_download_wakeword_model", lambda name: None)
+    cfg = Config(audio=AudioConfig(wakeword=WakeWordConfig(model="hey_jarvis")))
+
+    check = doctor.check_wakeword(cfg, download=False)
+    assert check.status == "warn" and "not available" in check.detail

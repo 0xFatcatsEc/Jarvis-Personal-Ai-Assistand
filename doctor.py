@@ -187,12 +187,31 @@ def check_keys(cfg: Config) -> Check:
     return Check("keys", "ok", "cloud/HA secrets present")
 
 
+def check_wakeword(cfg: Config, *, download: bool) -> Check:
+    if not cfg.audio.wakeword.enabled:
+        return Check("wakeword", "ok", "disabled")
+    name = cfg.audio.wakeword.model
+    if name.endswith(".onnx") or "/" in name or "\\" in name:
+        path = Path(name)
+        return Check("wakeword", "ok" if path.exists() else "warn", str(path))
+    try:
+        from audio import ensure_wakeword_model
+
+        path = ensure_wakeword_model(name, download=download)
+    except ImportError:
+        return Check("wakeword", "warn", "dependencies missing (pip install -r requirements.txt)")
+    except Exception as exc:  # noqa: BLE001 - a check reports, it never raises
+        return Check("wakeword", "warn", f"could not download {name}: {exc}")
+    return Check("wakeword", "ok", str(path))
+
+
 def run_checks(cfg: Config, *, download: bool, sd_module: object | None = None) -> list[Check]:
     return [
         check_python(),
         check_modules(),
         check_piper_binary(),
         check_voice(cfg, download=download),
+        check_wakeword(cfg, download=download),
         check_audio(sd_module),
         check_ollama(cfg),
         check_keys(cfg),

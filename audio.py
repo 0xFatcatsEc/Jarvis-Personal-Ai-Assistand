@@ -20,6 +20,7 @@ import math
 import time
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import AsyncIterator, Callable, Iterator, Protocol
 
 import numpy as np
@@ -383,12 +384,57 @@ def build_listener(cfg: AudioConfig, stt: SttConfig) -> VoiceListener:
     return VoiceListener(capture, collector, Transcriber(stt), wakeword)
 
 
-def _load_wakeword_model(model: str | None = None) -> object:
-    from openwakeword.model import Model
+def _wakeword_model_dir() -> Path:
+    import openwakeword
 
+    return Path(openwakeword.__file__).resolve().parent / "resources" / "models"
+
+
+def _download_wakeword_model(name: str) -> None:
+    from openwakeword.utils import download_models
+
+    download_models(model_names=[name])
+
+
+def ensure_wakeword_model(name: str, *, download: bool = True) -> Path:
+    """Path to openWakeWord's bundled <name>_v*.onnx, fetching it once when absent.
+
+    A bare name such as 'alexa' or 'hey_jarvis' used to be handed to
+    `Model`, which looks for the file next to the installed package and fails
+    with "File doesn't exist" when it was never downloaded - taking the whole
+    voice loop down with it.
+    """
+    directory = _wakeword_model_dir()
+    found = sorted(directory.glob(f"{name}_v*.onnx"))
+    if found:
+        return found[-1]
+    if download:
+        try:
+            log.info("downloading wake word model %r", name)
+            _download_wakeword_model(name)
+        except Exception as exc:  # network down, unknown name, no write access
+            raise AudioError(
+                f"could not download wake word model {name!r}: {exc}"
+            ) from exc
+        found = sorted(directory.glob(f"{name}_v*.onnx"))
+    if not found:
+        raise AudioError(
+            f"wake word model {name!r} is not available; run 'python doctor.py', "
+            "or set audio.wakeword.model to a .onnx file"
+        )
+    return found[-1]
+
+
+def _load_wakeword_model(model: str | None = None) -> object:
     name = model
     if name is None:
         raise AudioError("wake word model name required")
-    if name.endswith(".onnx") or "/" in name:
-        return Model(wakeword_models=[name])
-    return Model(wakeword_models=[name], inference_framework="onnx")
+    explicit = name.endswith(".onnx") or "/" in name or "\\" in name
+    if explicit and not Path(name).exists():
+        raise AudioError(f"wake word model file {name} does not exist")
+
+    from openwakeword.model import Model
+
+    if explicit:
+        return Model(wakeword_models=[str(Path(name))])
+    return Model(wakeword_models=[str(ensure_wakeword_model(name))], inference_framework="onnx")

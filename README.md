@@ -20,7 +20,7 @@ the machine with a sound card.
 | 2 | `audio.py` | mic capture, wake word, VAD, faster-whisper STT | done |
 | 3 | `brain.py` | streaming LLM router, local -> cloud fallback | done |
 | 4 | `memory.py` | SQLite facts + Chroma recall, learn, decay | done |
-| 5 | `tools.py` | web search, notes, reminders, Home Assistant, shell | done |
+| 5 | `tools.py` | web search, notes, reminders, Home Assistant, shell, apps | done |
 | 6 | `tts.py` | Piper speech out, sentence chunking, playback | done |
 | 7 | `main.py` | async loop, tool calls, confirmations, reminders | done |
 
@@ -93,9 +93,16 @@ missing audio devices, an unreachable Ollama, untrained models and unset keys;
 
 Two behaviours worth knowing:
 
-- **Risky tools ask first.** Writing/appending notes and switching Home
-  Assistant devices produce "Should I ...? Say yes to confirm." The pending
-  action survives one turn; yes runs it, anything else cancels it.
+- **Risky tools ask first.** Writing/appending notes, switching Home Assistant
+  devices, and opening, closing or focusing an app produce "Should I ...? Say
+  yes to confirm." The pending action survives one turn; yes runs it, anything
+  else cancels it. Listing running apps never asks.
+- **App control by voice.** "Open chrome", "close notepad", "switch to
+  spotify", "what apps are open" go through `tools.apps`. Add your own spoken
+  names in `tools.apps.aliases` (`browser: chrome`), and use
+  `tools.apps.allow` to restrict which apps Jarvis may touch. On Windows it
+  uses `start`, so Store apps such as `spotify` work by name; if one is not
+  found, put the exact name it has on your machine in `aliases`.
 - **Degradation is graceful.** No cloud key, no Ollama, no Piper voice or no
   Chroma embedding model each produce a warning and a reduced mode (local LLM
   only, text instead of speech, facts without conversation recall) instead of a
@@ -112,7 +119,7 @@ audio.py           mic -> wake word -> VAD -> Whisper
 brain.py           LLM router + system prompt assembly
 memory.py          SQLite user_facts + Chroma conversation recall
 memory_cli.py      list/get/set/forget/decay facts from the shell
-tools.py           web search, Home Assistant, notes, reminders, shell
+tools.py           web search, Home Assistant, notes, reminders, shell, apps
 tts.py             Piper synthesis and playback
 main.py            async entry point
 desktop.py         the --app desktop window: server + voice + pywebview/tray/hotkey
@@ -193,6 +200,12 @@ redacted JSON for scripting.
   absolute or `..` paths, timeout and output cap), Home Assistant is limited to
   `allow_domains`, fact extraction refuses credentials, and
   `confirm_risky_actions: true` gates side effects on a spoken yes.
+- **App control is name-only.** `tools.apps` opens, closes, focuses and lists
+  desktop apps by bare name: `start` on Windows (knows Store apps and file
+  associations), `open -a` on macOS, PATH / `gtk-launch` / `xdg-open` on Linux.
+  Names are checked against a plain-name pattern and `tools.apps.aliases`
+  targets must be bare names too, so no path, flag, `&` or `;` ever reaches a
+  shell. `tools.apps.allow` restricts which apps may be controlled.
 
 ## Testing
 

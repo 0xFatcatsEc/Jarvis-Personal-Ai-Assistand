@@ -122,7 +122,7 @@ tts:
   device_index: null         # speaker for playback; null = system default
 
 tools:
-  enabled: [web_search, notes, reminders, home_assistant, shell]
+  enabled: [web_search, notes, reminders, home_assistant, shell, apps]
   confirm_risky_actions: true   # speak back and wait for a yes before side effects
   web_search:
     provider: ddgs           # ddgs (no key) | tavily | searxng
@@ -147,6 +147,21 @@ tools:
     # argv[0] only, matched exactly. These are read-only inspection commands.
     whitelist: [ls, date, uptime, df, whoami, pwd]
     timeout_s: 5
+    max_output_bytes: 4096
+  apps:
+    enabled: true
+    # Spoken name -> the name this computer knows. Add your own:
+    #   browser: chrome      -> "Jarvis, open browser"
+    #   editor: notepad
+    #   music: spotify
+    aliases:
+      browser: chrome
+      editor: notepad
+      music: spotify
+    # [] = any plain app name is allowed. List names to restrict what Jarvis
+    # may open, close or focus (entries are spoken names or real app names).
+    allow: []
+    timeout_s: 10            # how long listing/closing may take
     max_output_bytes: 4096
 
 ui:

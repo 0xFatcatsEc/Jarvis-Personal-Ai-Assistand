@@ -184,6 +184,18 @@ def test_shell_whitelist_rejects_anything_but_bare_command_names(tmp_path, entry
         load_config(path)
 
 
+@pytest.mark.parametrize("target", ["C:/Windows/notepad.exe", "/usr/bin/code", "chrome & calc"])
+def test_app_alias_targets_must_be_plain_app_names(tmp_path, target):
+    path = write_config(
+        tmp_path,
+        "version: 1\ntools:\n  apps:\n    aliases:\n      browser: "
+        + f"'{target}'\n",
+    )
+
+    with pytest.raises(ConfigError, match="alias target"):
+        load_config(path)
+
+
 def test_duplicate_provider_is_rejected(tmp_path):
     path = write_config(
         tmp_path,

@@ -64,7 +64,8 @@ _PATH_KEYS: tuple[str, ...] = (
 FALLBACK_REASONS = frozenset(
     {"connection", "timeout", "rate_limit", "server_error", "bad_response"}
 )
-TOOL_NAMES = ("web_search", "notes", "reminders", "home_assistant", "shell")
+TOOL_NAMES = ("web_search", "notes", "reminders", "home_assistant", "shell", "apps")
+_APP_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}")
 
 
 class ConfigError(RuntimeError):
@@ -303,6 +304,42 @@ class ShellConfig(_Section):
         return value
 
 
+class AppsConfig(_Section):
+    enabled: bool = True
+    aliases: dict[str, str] = Field(default_factory=dict)
+    allow: list[str] = Field(default_factory=list)
+    timeout_s: float = Field(10.0, gt=0.0, le=60.0)
+    max_output_bytes: int = Field(4096, ge=256, le=1_000_000)
+
+    @field_validator("aliases")
+    @classmethod
+    def _spoken_names_to_plain_targets(cls, value: dict[str, str]) -> dict[str, str]:
+        for spoken, target in value.items():
+            # Spoken names are what the user says; targets are bare app names,
+            # never a path or a command line Jarvis would hand to a shell.
+            if not _APP_NAME.fullmatch(spoken.strip()):
+                raise ValueError(
+                    f"invalid app alias {spoken!r}; use a spoken name such as 'browser'"
+                )
+            if not _APP_NAME.fullmatch(target.strip()):
+                raise ValueError(
+                    f"invalid app alias target {target!r} for {spoken!r}; use a bare "
+                    "app name (e.g. 'chrome'), never a path or a command"
+                )
+        return value
+
+    @field_validator("allow")
+    @classmethod
+    def _plain_app_names(cls, value: list[str]) -> list[str]:
+        for entry in value:
+            if not _APP_NAME.fullmatch(entry.strip()):
+                raise ValueError(
+                    f"invalid tools.apps.allow entry {entry!r}; use a bare app name "
+                    "(e.g. 'chrome'), never a path or a command"
+                )
+        return value
+
+
 class ToolsConfig(_Section):
     enabled: list[str] = Field(default_factory=lambda: list(TOOL_NAMES))
     confirm_risky_actions: bool = True
@@ -311,6 +348,7 @@ class ToolsConfig(_Section):
     notes: NotesConfig = Field(default_factory=NotesConfig)
     reminders: RemindersConfig = Field(default_factory=RemindersConfig)
     shell: ShellConfig = Field(default_factory=ShellConfig)
+    apps: AppsConfig = Field(default_factory=AppsConfig)
 
     @field_validator("enabled")
     @classmethod

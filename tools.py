@@ -15,7 +15,10 @@ import json
 import logging
 import re
 import shlex
+import shutil
 import sqlite3
+import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -24,11 +27,20 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 
-from config import HomeAssistantConfig, NotesConfig, RemindersConfig, ShellConfig, ToolsConfig, WebSearchConfig
+from config import (
+    AppsConfig,
+    HomeAssistantConfig,
+    NotesConfig,
+    RemindersConfig,
+    ShellConfig,
+    ToolsConfig,
+    WebSearchConfig,
+)
 
 log = logging.getLogger(__name__)
 
 NOTE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")
+APP_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$")
 RELATIVE_RE = re.compile(
     r"(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)(?![a-z])"
 )
@@ -512,6 +524,197 @@ class Shell:
 
 
 # --------------------------------------------------------------------------- #
+# apps
+# --------------------------------------------------------------------------- #
+class Apps:
+    """Open, close, focus and list the user's desktop applications.
+
+    Names are resolved through `tools.apps.aliases` and must be bare app names:
+    no paths, flags or shell syntax ever reach a shell. Windows uses `start`
+    (which knows Store apps and registered handlers), macOS `open -a`, Linux
+    PATH / `gtk-launch` / `xdg-open`.
+    """
+
+    def __init__(self, cfg: AppsConfig, *, platform_name: str | None = None) -> None:
+        self.cfg = cfg
+        self.platform = (platform_name or sys.platform).lower()
+
+    async def run(self, args: dict[str, Any]) -> str:
+        if not self.cfg.enabled:
+            raise ToolError("app control is disabled")
+        action = _str_arg(args, "action", max_len=20).lower()
+        if action == "list":
+            return await self._list()
+        if action not in {"open", "close", "focus"}:
+            raise ToolError(f"unknown action {action!r}; use open, close, focus or list")
+        name = _str_arg(args, "app", max_len=120)
+        target = self._target(name)
+        if action == "open":
+            return self._open(target)
+        if action == "close":
+            return await self._close(target)
+        return await self._focus(target)
+
+    # -- validation ------------------------------------------------------ #
+    def _target(self, name: str) -> str:
+        spoken = " ".join(name.split()).lower()
+        target = " ".join(self.cfg.aliases.get(spoken, name).split())
+        if not APP_NAME_RE.fullmatch(target):
+            raise ToolError(
+                f"{name!r} is not a plain app name; say the app's name (e.g. 'chrome'), "
+                "not a path or a command"
+            )
+        if self.cfg.allow:
+            allowed = {entry.strip().lower() for entry in self.cfg.allow}
+            if spoken not in allowed and target.lower() not in allowed:
+                raise ToolError(
+                    f"{name!r} is not in tools.apps.allow; allowed: {', '.join(sorted(allowed))}"
+                )
+        return target
+
+    # -- actions --------------------------------------------------------- #
+    def _open(self, target: str) -> str:
+        if self._windows():
+            self._spawn(["cmd", "/c", "start", "", target])
+        elif self._mac():
+            self._spawn(["open", "-a", target])
+        else:
+            launched = self._launch_posix(target)
+            if not launched:
+                raise ToolError(
+                    f"cannot find an app called {target!r}; add it to tools.apps.aliases "
+                    "with the command or desktop name it has on this machine"
+                )
+        return f"Opened {target}."
+
+    def _launch_posix(self, target: str) -> bool:
+        exe = shutil.which(target)
+        if exe:
+            self._spawn([exe])
+            return True
+        for launcher in ("gtk-launch", "xdg-open"):
+            if shutil.which(launcher):
+                self._spawn([launcher, target])
+                return True
+        return False
+
+    async def _close(self, target: str) -> str:
+        if self._windows():
+            image = target if target.lower().endswith(".exe") else f"{target}.exe"
+            status, output = await self._capture(["taskkill", "/IM", image, "/F"])
+            if status != 0:
+                raise ToolError(f"could not close {target}: {output or f'no process named {image}'}")
+            return f"Closed {target}."
+        if self._mac():
+            status, output = await self._capture(
+                ["osascript", "-e", f'tell application "{target}" to quit']
+            )
+            if status != 0:
+                raise ToolError(f"could not close {target}: {output or 'no such app'}")
+            return f"Asked {target} to quit."
+        status, output = await self._capture(["pkill", "-x", target])
+        if status == 1:
+            raise ToolError(f"{target!r} is not running")
+        if status != 0:
+            raise ToolError(f"could not close {target}: {output or f'exit {status}'}")
+        return f"Closed {target}."
+
+    async def _focus(self, target: str) -> str:
+        if self._windows():
+            self._focus_windows(target)
+            return f"Brought {target} to the front."
+        if self._mac():
+            self._spawn(["open", "-a", target])
+            return f"Brought {target} to the front."
+        if shutil.which("wmctrl"):
+            status, output = await self._capture(["wmctrl", "-a", target])
+            if status != 0:
+                raise ToolError(f"no open window for {target!r}: {output or ''}".strip())
+            return f"Brought {target} to the front."
+        raise ToolError("bringing a window to the front on Linux needs wmctrl: sudo apt install wmctrl")
+
+    async def _list(self) -> str:
+        if self._windows():
+            status, output = await self._capture(["tasklist", "/FO", "CSV", "/NH"])
+            if status != 0:
+                raise ToolError(f"cannot list apps: {output or f'exit {status}'}")
+            names = [
+                line.split(",", 1)[0].strip('" ')
+                for line in output.splitlines()
+                if line.strip()
+            ]
+        else:
+            status, output = await self._capture(["ps", "-eo", "comm="])
+            if status != 0:
+                raise ToolError(f"cannot list apps: {output or f'exit {status}'}")
+            names = [line.strip().rsplit("/", 1)[-1] for line in output.splitlines() if line.strip()]
+        unique = sorted({name for name in names if name})
+        if not unique:
+            return "No running apps reported."
+        return _cap("Running apps: " + ", ".join(unique), self.cfg.max_output_bytes)
+
+    # -- platform helpers ------------------------------------------------ #
+    def _windows(self) -> bool:
+        return self.platform.startswith("win")
+
+    def _mac(self) -> bool:
+        return self.platform == "darwin"
+
+    def _focus_windows(self, target: str) -> None:
+        import ctypes
+
+        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+        wanted = target.lower().removesuffix(".exe")
+        matches: list[int] = []
+        callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+        def visit(hwnd, _lparam):
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length and user32.IsWindowVisible(hwnd):
+                buffer = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buffer, length + 1)
+                if wanted in buffer.value.lower():
+                    matches.append(hwnd)
+            return True
+
+        user32.EnumWindows(callback_type(visit), 0)
+        if not matches:
+            raise ToolError(f"no open window for {target!r}")
+        user32.ShowWindow(matches[0], 9)  # SW_RESTORE
+        user32.SetForegroundWindow(matches[0])
+
+    # -- process plumbing (patched in tests) ----------------------------- #
+    def _spawn(self, argv: list[str]) -> None:
+        try:
+            subprocess.Popen(  # noqa: S603 - argv only, never a shell
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=not self._windows(),
+            )
+        except OSError as exc:
+            raise ToolError(f"cannot start {argv[0]!r}: {exc}") from exc
+
+    async def _capture(self, argv: list[str]) -> tuple[int, str]:
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except FileNotFoundError:
+            raise ToolError(f"{argv[0]!r} is not installed") from None
+        try:
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=self.cfg.timeout_s)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            raise ToolError(f"{argv[0]} timed out after {self.cfg.timeout_s}s") from None
+        return process.returncode, stdout.decode("utf-8", "replace").strip()
+
+
+# --------------------------------------------------------------------------- #
 # registry
 # --------------------------------------------------------------------------- #
 @dataclass
@@ -563,6 +766,7 @@ class ToolRegistry:
             "reminders": self._reminders,
             "home_assistant": self._home_assistant,
             "shell": self._shell,
+            "apps": self._apps,
         }
         for name in cfg.enabled:
             self._tools[name] = builders[name]()
@@ -582,6 +786,8 @@ class ToolRegistry:
             return action in {"write", "append"}
         if name == "home_assistant":
             return action in {"turn_on", "turn_off", "toggle"}
+        if name == "apps":
+            return action in {"open", "close", "focus"}
         return self._tools[name].risky
 
     def describe(self, name: str, args: dict[str, Any]) -> str:
@@ -595,6 +801,8 @@ class ToolRegistry:
             return f"{args.get('action', 'change')} reminder"
         if name == "shell":
             return f"run {args.get('command', 'a command')!r}"
+        if name == "apps":
+            return f"{args.get('action', 'control')} app {args.get('app', 'the app')!r}"
         if name == "web_search":
             return f"search the web for {args.get('query', '')!r}"
         return name
@@ -700,6 +908,34 @@ class ToolRegistry:
                 "type": "object",
                 "properties": {"command": {"type": "string", "description": "Command line, e.g. 'df -h'"}},
                 "required": ["command"],
+            },
+            handler=tool.run,
+        )
+
+    def _apps(self) -> ToolSpec:
+        tool = Apps(self.cfg.apps)
+        return ToolSpec(
+            name="apps",
+            description=(
+                "Open, close, focus (bring to the front) or list applications on the "
+                "user's own computer, by a plain app name such as 'chrome', 'notepad' "
+                "or 'spotify'. Use it when the user says to open, switch to, close or "
+                "list their apps."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["open", "close", "focus", "list"],
+                        "description": "What to do with the app",
+                    },
+                    "app": {
+                        "type": "string",
+                        "description": "Plain app name, e.g. 'chrome' or 'notepad'; omit for list",
+                    },
+                },
+                "required": ["action"],
             },
             handler=tool.run,
         )

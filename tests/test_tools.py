@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 from config import (
+    AppsConfig,
     HomeAssistantConfig,
     NotesConfig,
     RemindersConfig,
@@ -19,6 +20,7 @@ from config import (
     WebSearchConfig,
 )
 from tools import (
+    Apps,
     HomeAssistant,
     Notes,
     ReminderStore,
@@ -39,12 +41,15 @@ def run(coro):
 
 def tools_config(tmp_path: Path, *, enabled=None, whitelist=("echo", "pwd")) -> ToolsConfig:
     return ToolsConfig(
-        enabled=list(enabled or ["web_search", "notes", "reminders", "home_assistant", "shell"]),
+        enabled=list(
+            enabled or ["web_search", "notes", "reminders", "home_assistant", "shell", "apps"]
+        ),
         web_search=WebSearchConfig(provider="ddgs"),
         home_assistant=HomeAssistantConfig(url="http://ha.test", token="tok", allow_domains=["light", "switch", "scene"]),
         notes=NotesConfig(dir=tmp_path / "notes"),
         reminders=RemindersConfig(db_path=tmp_path / "reminders.db"),
         shell=ShellConfig(whitelist=list(whitelist)),
+        apps=AppsConfig(),
     )
 
 
@@ -305,6 +310,125 @@ def test_shell_rejects_absolute_and_parent_paths(command):
 
 
 # --------------------------------------------------------------------------- #
+# apps
+# --------------------------------------------------------------------------- #
+def windows_apps(**cfg) -> Apps:
+    return Apps(AppsConfig(**cfg), platform_name="win32")
+
+
+def test_apps_open_uses_windows_start(monkeypatch):
+    tool = windows_apps()
+    calls = []
+    monkeypatch.setattr(tool, "_spawn", calls.append)
+    assert run(tool.run({"action": "open", "app": "notepad"})) == "Opened notepad."
+    assert calls == [["cmd", "/c", "start", "", "notepad"]]
+
+
+def test_apps_open_resolves_alias(monkeypatch):
+    tool = windows_apps(aliases={"browser": "chrome"})
+    calls = []
+    monkeypatch.setattr(tool, "_spawn", calls.append)
+    assert run(tool.run({"action": "open", "app": "Browser"})) == "Opened chrome."
+    assert calls == [["cmd", "/c", "start", "", "chrome"]]
+
+
+def test_apps_open_uses_macos_open(monkeypatch):
+    tool = Apps(AppsConfig(), platform_name="darwin")
+    calls = []
+    monkeypatch.setattr(tool, "_spawn", calls.append)
+    run(tool.run({"action": "open", "app": "Safari"}))
+    assert calls == [["open", "-a", "Safari"]]
+
+
+def test_apps_open_linux_resolves_binary(monkeypatch):
+    tool = Apps(AppsConfig(), platform_name="linux")
+    calls = []
+    monkeypatch.setattr(tool, "_spawn", calls.append)
+    monkeypatch.setattr("tools.shutil.which", lambda name: "/usr/bin/code" if name == "code" else None)
+    run(tool.run({"action": "open", "app": "code"}))
+    assert calls == [["/usr/bin/code"]]
+
+
+def test_apps_open_linux_reports_missing_app(monkeypatch):
+    tool = Apps(AppsConfig(), platform_name="linux")
+    monkeypatch.setattr("tools.shutil.which", lambda name: None)
+    with pytest.raises(ToolError, match="cannot find an app called 'ghost'"):
+        run(tool.run({"action": "open", "app": "ghost"}))
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["chrome & calc", "C:/Windows/notepad.exe", "..", "a;b", "chrome shutdown /s"],
+)
+def test_apps_rejects_names_that_are_not_plain_apps(name):
+    tool = windows_apps()
+    with pytest.raises(ToolError, match="not a plain app name"):
+        run(tool.run({"action": "open", "app": name}))
+
+
+def test_apps_allowlist_blocks_other_apps(monkeypatch):
+    tool = windows_apps(aliases={"browser": "chrome"}, allow=["browser"])
+    monkeypatch.setattr(tool, "_spawn", lambda argv: None)
+    run(tool.run({"action": "open", "app": "browser"}))
+    with pytest.raises(ToolError, match="not in tools.apps.allow"):
+        run(tool.run({"action": "open", "app": "calc"}))
+
+
+def test_apps_close_uses_taskkill(monkeypatch):
+    tool = windows_apps()
+    seen = []
+
+    async def capture(argv):
+        seen.append(argv)
+        return 0, "SUCCESS"
+
+    monkeypatch.setattr(tool, "_capture", capture)
+    assert run(tool.run({"action": "close", "app": "notepad"})) == "Closed notepad."
+    assert seen == [["taskkill", "/IM", "notepad.exe", "/F"]]
+
+
+def test_apps_close_reports_failure(monkeypatch):
+    tool = windows_apps()
+
+    async def capture(argv):
+        return 128, "ERROR: The process \"ghost.exe\" not found."
+
+    monkeypatch.setattr(tool, "_capture", capture)
+    with pytest.raises(ToolError, match="could not close ghost"):
+        run(tool.run({"action": "close", "app": "ghost"}))
+
+
+def test_apps_list_parses_tasklist(monkeypatch):
+    tool = windows_apps()
+
+    async def capture(argv):
+        assert argv == ["tasklist", "/FO", "CSV", "/NH"]
+        return 0, '"chrome.exe","1234","Console","1","100 K"\n"Notepad.exe","99","Console","1","10 K"\n'
+
+    monkeypatch.setattr(tool, "_capture", capture)
+    output = run(tool.run({"action": "list"}))
+    assert output == "Running apps: Notepad.exe, chrome.exe"
+
+
+def test_apps_list_parses_ps(monkeypatch):
+    tool = Apps(AppsConfig(), platform_name="linux")
+
+    async def capture(argv):
+        assert argv == ["ps", "-eo", "comm="]
+        return 0, "bash\n/usr/lib/firefox/firefox\nbash\n"
+
+    monkeypatch.setattr(tool, "_capture", capture)
+    assert run(tool.run({"action": "list"})) == "Running apps: bash, firefox"
+
+
+def test_apps_disabled_and_unknown_action():
+    with pytest.raises(ToolError, match="disabled"):
+        run(Apps(AppsConfig(enabled=False)).run({"action": "list"}))
+    with pytest.raises(ToolError, match="unknown action"):
+        run(windows_apps().run({"action": "explode", "app": "calc"}))
+
+
+# --------------------------------------------------------------------------- #
 # registry
 # --------------------------------------------------------------------------- #
 def test_registry_only_exposes_enabled_tools(tmp_path):
@@ -330,6 +454,9 @@ def test_registry_marks_side_effects_risky(tmp_path):
     assert registry.risky("home_assistant", {"action": "list_states"}) is False
     assert registry.risky("home_assistant", {"action": "turn_on"}) is True
     assert registry.risky("web_search", {"query": "x"}) is False
+    assert registry.risky("apps", {"action": "list"}) is False
+    assert registry.risky("apps", {"action": "open"}) is True
+    assert registry.risky("apps", {"action": "close"}) is True
 
 
 def test_registry_describe_mentions_target(tmp_path):

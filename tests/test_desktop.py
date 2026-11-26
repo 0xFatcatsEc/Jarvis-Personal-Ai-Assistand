@@ -51,10 +51,9 @@ def test_choose_port_moves_when_the_configured_port_is_taken():
         holder.bind(("127.0.0.1", 0))
         holder.listen(1)
         busy = holder.getsockname()[1]
-        assert desktop.port_in_use("127.0.0.1", busy)
         chosen = desktop.choose_port("127.0.0.1", busy)
         assert chosen != busy
-        assert not desktop.port_in_use("127.0.0.1", chosen)
+        assert desktop._can_bind("127.0.0.1", chosen)
 
 
 def test_choose_port_scans_up_from_a_busy_port():
@@ -65,20 +64,30 @@ def test_choose_port_scans_up_from_a_busy_port():
         chosen = desktop.choose_port("127.0.0.1", busy)
 
         assert chosen != busy
-        assert not desktop.port_in_use("127.0.0.1", chosen)
         assert desktop._can_bind("127.0.0.1", chosen)
 
 
-def test_free_port_skips_a_candidate_that_still_answers(monkeypatch):
+def test_choose_port_ignores_a_connect_probe_that_says_free(monkeypatch):
+    """Windows can report a taken port as free; the bind is what counts."""
+    monkeypatch.setattr(desktop, "port_in_use", lambda host, port: False)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+        holder.bind(("127.0.0.1", 0))
+        holder.listen(1)
+        busy = holder.getsockname()[1]
+
+        assert desktop.choose_port("127.0.0.1", busy) != busy
+
+
+def test_free_port_skips_a_candidate_that_cannot_be_bound(monkeypatch):
     seen = []
 
-    def fake_in_use(host, port):
+    def fake_can_bind(host, port):
         seen.append(port)
-        return len(seen) == 1
+        return len(seen) > 1
 
-    monkeypatch.setattr(desktop, "port_in_use", fake_in_use)
-    desktop.free_port("127.0.0.1")
-    assert len(seen) >= 2
+    monkeypatch.setattr(desktop, "_can_bind", fake_can_bind)
+    desktop.free_port("127.0.0.1", near=5000)
+    assert seen[:2] == [5001, 5002]
 
 
 def test_choose_port_keeps_a_free_port():

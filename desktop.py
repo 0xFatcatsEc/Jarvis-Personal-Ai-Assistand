@@ -86,6 +86,11 @@ def app_url(host: str, port: int) -> str:
 
 
 def port_in_use(host: str, port: int) -> bool:
+    """Whether something answers on the port right now.
+
+    A probe only: on Windows a second connect to the same listening socket can
+    fail while the first is still queued, so port choice uses `_can_bind`.
+    """
     if port <= 0:
         return False
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -108,13 +113,12 @@ def _can_bind(host: str, port: int) -> bool:
 def free_port(host: str, *, near: int = 0, span: int = 64) -> int:
     """A port nothing holds, preferring numbers just above `near`.
 
-    Candidates are confirmed twice: nothing answers on them, and they can be
-    bound exclusively. Windows can hand out a port that is already listening,
-    so the OS-assigned value is re-checked too.
+    Free means an exclusive bind succeeded - the one check Windows cannot fake
+    by handing back a port another socket is already listening on.
     """
     if near > 0:
         for port in range(near + 1, near + 1 + span):
-            if not port_in_use(host, port) and _can_bind(host, port):
+            if _can_bind(host, port):
                 return port
     port = 0
     for _ in range(20):
@@ -123,15 +127,15 @@ def free_port(host: str, *, near: int = 0, span: int = 64) -> int:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
             sock.bind((host, 0))
             port = int(sock.getsockname()[1])
-        if not port_in_use(host, port):
+        if _can_bind(host, port):
             return port
-        log.debug("free_port: %s still answers on %s; asking again", host, port)
+        log.debug("free_port: %s cannot bind %s; asking again", host, port)
     return port
 
 
 def choose_port(host: str, preferred: int) -> int:
     """Use the configured port, unless another process already holds it."""
-    if preferred > 0 and not port_in_use(host, preferred):
+    if preferred > 0 and _can_bind(host, preferred):
         return preferred
     chosen = free_port(host, near=preferred)
     log.info("ui port %s is busy; using %s for this window", preferred, chosen)

@@ -93,14 +93,31 @@ def port_in_use(host: str, port: int) -> bool:
         return sock.connect_ex((host, port)) == 0
 
 
-def free_port(host: str, attempts: int = 20) -> int:
-    """A port nothing is listening on.
+def _can_bind(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        if os.name == "nt":
+            # Without this Windows happily binds a port another socket holds.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
 
-    Windows can hand out, and let us bind, a port another socket already
-    listens on, so every candidate is re-checked with a real connection.
+
+def free_port(host: str, *, near: int = 0, span: int = 64) -> int:
+    """A port nothing holds, preferring numbers just above `near`.
+
+    Candidates are confirmed twice: nothing answers on them, and they can be
+    bound exclusively. Windows can hand out a port that is already listening,
+    so the OS-assigned value is re-checked too.
     """
+    if near > 0:
+        for port in range(near + 1, near + 1 + span):
+            if not port_in_use(host, port) and _can_bind(host, port):
+                return port
     port = 0
-    for _ in range(attempts):
+    for _ in range(20):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             if os.name == "nt":
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
@@ -116,7 +133,7 @@ def choose_port(host: str, preferred: int) -> int:
     """Use the configured port, unless another process already holds it."""
     if preferred > 0 and not port_in_use(host, preferred):
         return preferred
-    chosen = free_port(host)
+    chosen = free_port(host, near=preferred)
     log.info("ui port %s is busy; using %s for this window", preferred, chosen)
     return chosen
 

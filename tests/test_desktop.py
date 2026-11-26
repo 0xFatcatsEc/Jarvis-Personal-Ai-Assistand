@@ -57,6 +57,18 @@ def test_choose_port_moves_when_the_configured_port_is_taken():
         assert not desktop.port_in_use("127.0.0.1", chosen)
 
 
+def test_choose_port_scans_up_from_a_busy_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as holder:
+        holder.bind(("127.0.0.1", 0))
+        holder.listen(1)
+        busy = holder.getsockname()[1]
+        chosen = desktop.choose_port("127.0.0.1", busy)
+
+        assert chosen != busy
+        assert not desktop.port_in_use("127.0.0.1", chosen)
+        assert desktop._can_bind("127.0.0.1", chosen)
+
+
 def test_free_port_skips_a_candidate_that_still_answers(monkeypatch):
     seen = []
 

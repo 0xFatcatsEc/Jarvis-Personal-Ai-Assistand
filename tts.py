@@ -1,9 +1,9 @@
 """Text to speech with Piper, plus sentence chunking and playback.
 
-Synthesis shells out to the `piper` binary and reads the WAV it writes to
-stdout, so no Piper Python API churn and no temp files. Playback uses
-sounddevice, which is imported lazily: on a headless box `is_available()`
-is False and `main` falls back to printing text.
+Synthesis shells out to the `piper` binary and reads the WAV it writes to a
+temporary file (piper-tts 1.3 cannot stream WAV to stdout), so no Piper Python
+API churn. Playback uses sounddevice, which is imported lazily: on a headless
+box `is_available()` is False and `main` falls back to printing text.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import logging
 import re
 import shutil
 import subprocess
+import tempfile
 import wave
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,7 +90,7 @@ def _run_piper(command: Sequence[str], text: str, timeout_s: float) -> bytes:
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", "replace").strip().splitlines()
         raise TTSError(f"piper failed (exit {result.returncode}): {detail[-1] if detail else 'no output'}")
-    if not result.stdout:
+    if not result.stdout and command[-1] == "-":
         raise TTSError("piper produced no audio")
     return result.stdout
 
@@ -116,7 +117,7 @@ class PiperEngine:
     def is_available(self) -> bool:
         return self._which("piper") is not None and self.model_path().exists()
 
-    def command(self, *, speed: float | None = None) -> list[str]:
+    def command(self, *, speed: float | None = None, output_file: str = "-") -> list[str]:
         binary = self._which("piper")
         if binary is None:
             raise TTSError("piper binary not found on PATH; install piper-tts")
@@ -128,7 +129,15 @@ class PiperEngine:
             )
         rate = self.cfg.speed if speed is None else speed
         length_scale = 1.0 / max(0.5, min(2.0, rate))
-        return [binary, "--model", str(model), "--length-scale", f"{length_scale:.4f}", "--output-file", "-"]
+        return [
+            binary,
+            "--model",
+            str(model),
+            "--length-scale",
+            f"{length_scale:.4f}",
+            "--output-file",
+            output_file,
+        ]
 
     def synthesize(self, text: str, *, speed: float | None = None) -> Speech:
         clean = " ".join(text.split())
@@ -136,7 +145,15 @@ class PiperEngine:
             raise TTSError("nothing to speak")
         if len(clean) > MAX_SYNTH_CHARS:
             raise TTSError(f"text is longer than {MAX_SYNTH_CHARS} characters")
-        wav_bytes = self._runner(self.command(speed=speed), clean, self.timeout_s)
+        # piper-tts 1.3 crashes writing WAV to stdout ('Wave_write' has no
+        # attribute '_file'), so it writes a file and Jarvis reads that.
+        with tempfile.TemporaryDirectory(prefix="jarvis-tts-") as directory:
+            target = Path(directory) / "speech.wav"
+            wav_bytes = self._runner(
+                self.command(speed=speed, output_file=str(target)), clean, self.timeout_s
+            )
+            if target.exists() and target.stat().st_size:
+                wav_bytes = target.read_bytes()
         return self._decode(wav_bytes)
 
     def _decode(self, wav_bytes: bytes) -> Speech:

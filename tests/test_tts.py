@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import wave
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -87,7 +88,17 @@ def test_synthesize_decodes_wav_and_uses_speed(voice, tmp_path):
     assert calls["text"] == "hi there"
     assert "--length-scale" in calls["command"]
     assert calls["command"][calls["command"].index("--length-scale") + 1] == "0.8333"
-    assert calls["command"][-1] == "-"
+    assert calls["command"][-2] == "--output-file"
+    assert calls["command"][-1].endswith(".wav") and calls["command"][-1] != "-"
+
+
+def test_synthesize_reads_the_wav_piper_writes(voice, tmp_path):
+    def runner(command, text, timeout):
+        Path(command[-1]).write_bytes(wav_bytes(tone(30)))
+        return b""
+
+    synth = engine(tmp_path, voice, runner)
+    assert len(synth.synthesize("hi there").samples) == 30
 
 
 def test_synthesize_applies_volume(voice, tmp_path):
